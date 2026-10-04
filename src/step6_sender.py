@@ -1,222 +1,139 @@
 """
 step6_sender.py
------------------
-Phase 8 — Reply Sender (Real Send via Gmail API).
-Phase 13 — Spam classification action (move_to_spam).
+---------------
+All Gmail write operations: send an in-thread reply, create a draft for
+human review, apply labels, mark read, move to Spam.
 
-Kaam:
-- MIME reply message banana (In-Reply-To / References headers ke sath,
-  taake Gmail thread mein sahi jagah pe dikhe, naya conversation na bane)
-- Gmail API se real bhejna
-- Send hone ke baad: UNREAD label hatana, "AI-Replied" custom label lagana
-- Confirmed-spam emails ko Gmail ke asli Spam folder mein physically
-  move karna (move_to_spam)
-
-NOTE: send_reply() ko ek authenticated Gmail 'service' object chahiye
-hota hai — ye Phase 9 (main.py) se pass hoga taake har email ke liye
-service dobara authenticate na karna paray.
+* Replies are built with email.message.EmailMessage (SMTP policy) so Urdu /
+  non-ASCII subjects and bodies are encoded correctly.
+* Replies go to Reply-To when the sender set one (web forms, help desks).
+* Replies carry 'Auto-Submitted: auto-replied' (RFC 3834) so other
+  auto-responders do not answer back and start a mail loop.
+* Label ids are cached per service, so each label is looked up once.
 """
 
 import base64
-from email.mime.text import MIMEText
+import re
+from email.message import EmailMessage
+from email.policy import SMTP
 
-from src.config import (
-    AI_REPLIED_LABEL,
-    NEEDS_HUMAN_LABEL,
-    CATEGORY_LABEL_PREFIX,
-    PRIORITY_LABEL_PREFIX,
-    LOW_CONFIDENCE_LABEL,
-    SPAM_GMAIL_LABEL,
-)
+from src import config
+
+_label_cache: dict = {}
 
 
-def _build_reply_message(email: dict, draft_text: str) -> MIMEText:
-    """
-    MIME message banata hai (bina Gmail API call kiye) — isay alag
-    function isliye rakha hai taake headers ki correctness bina real
-    Gmail connection ke bhi test ho sake (dekho tests/test_sender.py).
-    """
-    reply_subject = email.get("subject", "") or ""
-    if not reply_subject.lower().startswith("re:"):
-        reply_subject = f"Re: {reply_subject}"
+def _reply_subject(subject: str) -> str:
+    subject = (subject or "").strip()
+    return subject if subject.lower().startswith("re:") else f"Re: {subject}".strip()
 
-    original_message_id = email.get("message_id_header", "")
 
-    message = MIMEText(draft_text)
-    message["to"] = email.get("from", "")
-    message["subject"] = reply_subject
-
-    # In-Reply-To / References headers -- Gmail (aur har mail client)
-    # inhi se decide karta hai ke ye reply kisi purani thread ka hissa
-    # hai, naya conversation nahi.
-    if original_message_id:
-        message["In-Reply-To"] = original_message_id
-        existing_references = email.get("references", "")
-        message["References"] = (
-            f"{existing_references} {original_message_id}".strip()
-            if existing_references
-            else original_message_id
-        )
-
+def _build_reply_message(email: dict, draft_text: str, auto_generated: bool = True) -> EmailMessage:
+    message = EmailMessage(policy=SMTP)
+    message["To"] = email.get("reply_to") or email.get("from", "")
+    message["Subject"] = _reply_subject(email.get("subject", ""))
+    original_id = (email.get("message_id_header") or "").strip()
+    if original_id:
+        message["In-Reply-To"] = original_id
+        refs = (email.get("references") or "").strip()
+        message["References"] = f"{refs} {original_id}".strip() if refs else original_id
+    if auto_generated:
+        message["Auto-Submitted"] = "auto-replied"
+    text = draft_text or ""
+    # Non-ASCII (Urdu, accents): quoted-printable keeps the wire format 7-bit safe.
+    cte = "7bit" if text.isascii() else "quoted-printable"
+    message.set_content(text, charset="utf-8", cte=cte)
     return message
 
 
-def _get_or_create_label(service, label_name: str) -> str:
-    """
-    Gmail mein diye gaye naam ka label dhoondta hai, agar exist nahi
-    karta to naya bana deta hai. Label ID return karta hai (Gmail
-    labels API naam se nahi, ID se kaam karti hai).
-    """
-    labels_response = service.users().labels().list(userId="me").execute()
-    existing_labels = labels_response.get("labels", [])
+def _raw(message: EmailMessage) -> str:
+    return base64.urlsafe_b64encode(message.as_bytes()).decode("ascii")
 
-    for label in existing_labels:
-        if label["name"] == label_name:
+
+def _label_key(name: str) -> str:
+    """Gmail treats names that differ only in case or space/hyphen/underscore as
+    the same label ('Category-General Query' vs 'Category-General-Query')."""
+    return re.sub(r"[\s_\-]+", "-", name.strip().lower())
+
+
+def _find_existing(labels, label_name):
+    wanted = _label_key(label_name)
+    for label in labels:
+        if _label_key(label["name"]) == wanted:
             return label["id"]
+    return None
 
-    new_label = service.users().labels().create(
-        userId="me",
-        body={
-            "name": label_name,
-            "labelListVisibility": "labelShow",
-            "messageListVisibility": "show",
-        },
+
+def get_label_id(service, label_name: str) -> str:
+    """Id of a user label, reusing an equivalent existing label instead of
+    creating a duplicate (older versions named labels slightly differently)."""
+    key = (id(service), label_name)
+    if key in _label_cache:
+        return _label_cache[key]
+    labels = service.users().labels().list(userId="me").execute().get("labels", [])
+    for label in labels:
+        _label_cache[(id(service), label["name"])] = label["id"]
+    existing = _label_cache.get(key) or _find_existing(labels, label_name)
+    if existing:
+        _label_cache[key] = existing
+        return existing
+    try:
+        created = service.users().labels().create(
+            userId="me",
+            body={"name": label_name, "labelListVisibility": "labelShow", "messageListVisibility": "show"},
+        ).execute()
+        _label_cache[key] = created["id"]
+    except Exception:
+        # Created meanwhile, or Gmail reports a conflicting name: look it up again.
+        labels = service.users().labels().list(userId="me").execute().get("labels", [])
+        existing = _find_existing(labels, label_name)
+        if not existing:
+            raise
+        _label_cache[key] = existing
+    return _label_cache[key]
+
+
+def modify_labels(service, gmail_id: str, add_names=(), remove_ids=()):
+    body = {}
+    add_ids = [get_label_id(service, n) for n in add_names]
+    if add_ids:
+        body["addLabelIds"] = add_ids
+    if remove_ids:
+        body["removeLabelIds"] = list(remove_ids)
+    if body:
+        service.users().messages().modify(userId="me", id=gmail_id, body=body).execute()
+
+
+def send_reply(service, email: dict, draft_text: str, auto_generated: bool = True) -> dict:
+    """Sends the reply in the original thread. ONLY sends - labelling is separate."""
+    message = _build_reply_message(email, draft_text, auto_generated)
+    return service.users().messages().send(
+        userId="me", body={"raw": _raw(message), "threadId": email.get("thread_id")}
     ).execute()
-    return new_label["id"]
+
+
+def create_reply_draft(service, email: dict, draft_text: str) -> dict:
+    """Saves the AI draft in the thread so a human can review/edit/send it in Gmail."""
+    message = _build_reply_message(email, draft_text, auto_generated=False)
+    return service.users().drafts().create(
+        userId="me", body={"message": {"raw": _raw(message), "threadId": email.get("thread_id")}}
+    ).execute()
 
 
 def _label_display_name(value: str) -> str:
-    """'invoice_payment' -> 'Invoice Payment' (Gmail label ke liye readable naam)."""
-    return value.replace("_", " ").strip().title()
+    return value.replace("_", " ").strip().title().replace(" ", "-")
 
 
-def apply_triage_labels(service, email: dict, category: str = None, priority: str = None, low_confidence: bool = False):
-    """
-    Phase 12 — Email par category/priority/review labels lagata hai
-    (Gmail inbox mein visually triage karne ke liye, jaise
-    "Category-Complaint", "Priority-High", "Needs-Review"). Har label
-    lazily create hoti hai (agar pehle se na ho).
-
-    Ye function best-effort hai — agar koi ek label fail ho jaye
-    (jaise naam mein invalid character), poora processing crash nahi
-    hona chahiye, isliye har add try/except mein wrapped hai.
-    """
-    label_names = []
+def triage_label_names(category=None, priority=None) -> list:
+    names = []
     if category:
-        label_names.append(f"{CATEGORY_LABEL_PREFIX}-{_label_display_name(category)}")
+        names.append(f"{config.CATEGORY_LABEL_PREFIX}-{_label_display_name(category)}")
     if priority:
-        label_names.append(f"{PRIORITY_LABEL_PREFIX}-{_label_display_name(priority)}")
-    if low_confidence:
-        label_names.append(LOW_CONFIDENCE_LABEL)
-
-    label_ids = []
-    for name in label_names:
-        try:
-            label_ids.append(_get_or_create_label(service, name))
-        except Exception:
-            continue  # ek label fail ho to baaki processing na ruke
-
-    if not label_ids:
-        return
-
-    service.users().messages().modify(
-        userId="me", id=email["id"], body={"addLabelIds": label_ids}
-    ).execute()
-
-
-def send_reply(service, email: dict, draft_text: str) -> dict:
-    """
-    Real reply Gmail se bhejta hai, original thread mein.
-
-    email dict Phase 4 ke format mein hona chahiye (keys: id, from,
-    subject, thread_id, message_id_header, references).
-
-    Return: Gmail API ka send response (dict, jismein naye message ki id hai)
-    """
-    message = _build_reply_message(email, draft_text)
-    raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
-
-    send_body = {"raw": raw_message, "threadId": email.get("thread_id")}
-
-    sent_message = service.users().messages().send(
-        userId="me", body=send_body
-    ).execute()
-
-    # Original email ko UNREAD se hatao, AI-Replied lagao
-    ai_replied_label_id = _get_or_create_label(service, AI_REPLIED_LABEL)
-    service.users().messages().modify(
-        userId="me",
-        id=email["id"],
-        body={
-            "removeLabelIds": ["UNREAD"],
-            "addLabelIds": [ai_replied_label_id],
-        },
-    ).execute()
-
-    return sent_message
+        names.append(f"{config.PRIORITY_LABEL_PREFIX}-{_label_display_name(priority)}")
+    return names
 
 
 def move_to_spam(service, email: dict):
-    """
-    Phase 13 — Confirmed-spam email ko Gmail ke ASLI Spam folder mein
-    physically move karta hai.
-
-    Gmail mein "Spam folder" koi alag jagah nahi, balke ek special
-    SPAM label hai — jab tak koi email SPAM label carry kare AUR INBOX
-    label na rakhe, Gmail usay Spam folder mein dikhata hai. Isliye:
-    - SPAM label ADD karte hain
-    - INBOX aur UNREAD labels REMOVE karte hain (taake wo Inbox se
-      hat kar sirf Spam folder mein dikhe, aur backlog mein dobara
-      unread na count ho)
-
-    Ye function guardrails-level spam (blacklist/learned-feedback) aur
-    agent(LLM)-level spam (category == "spam") — dono jagah se call hoti
-    hai (dekho main.py).
-    """
     service.users().messages().modify(
-        userId="me",
-        id=email["id"],
-        body={
-            "addLabelIds": [SPAM_GMAIL_LABEL],
-            "removeLabelIds": ["INBOX", "UNREAD"],
-        },
+        userId="me", id=email["id"],
+        body={"addLabelIds": [config.SPAM_GMAIL_LABEL], "removeLabelIds": ["INBOX", "UNREAD"]},
     ).execute()
-
-
-def mark_needs_human(service, email: dict):
-    """
-    Phase 9 escalate_to_human decision ke liye — email ko "Needs-Human"
-    label lagata hai taake insaan us par nazar rakh sake. UNREAD nahi
-    hataya jata (taake pata chale ye abhi tak kisi ne dekha nahi).
-    """
-    needs_human_label_id = _get_or_create_label(service, NEEDS_HUMAN_LABEL)
-    service.users().messages().modify(
-        userId="me",
-        id=email["id"],
-        body={"addLabelIds": [needs_human_label_id]},
-    ).execute()
-
-
-if __name__ == "__main__":
-    # Standalone LIVE test: python -m src.step6_sender
-    # IMPORTANT: Guide ka rule follow karo — pehle apne hi doosre email
-    # address pe test karo, real client ko kabhi nahi. Ye script tumhare
-    # inbox ki PEHLI unread email ko ek test reply bhejega.
-    from src.step1_auth import get_gmail_service
-    from src.step2_fetcher import fetch_unread_emails
-
-    service = get_gmail_service()
-    emails = fetch_unread_emails()
-
-    if not emails:
-        print("Test ke liye koi unread email nahi mili. Pehle khud ko (doosre address se) ek test email bhejo, phir dobara try karo.")
-    else:
-        test_email = emails[0]
-        print(f"Test reply bhej rahe hain: '{test_email['subject']}' ko ({test_email['from']})...")
-        result = send_reply(
-            service,
-            test_email,
-            "This is a test reply from the Email Reply AI Agent. (Phase 8 test)",
-        )
-        print("Reply bhej di gayi. Message ID:", result.get("id"))
-        print("Gmail mein jaake confirm karo ke ye reply original thread mein hi dikh rahi hai (naya conversation nahi bana).")

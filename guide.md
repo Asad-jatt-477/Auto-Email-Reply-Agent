@@ -1,3 +1,5 @@
+> **Note:** this is the original phase-by-phase build log. For the current architecture, setup and deployment see `README.md` and `DEPLOYMENT.md`.
+
 # Email Reply AI Agent — Complete Build Guide
 
 **Goal:** Ek real Gmail account se connected AI Agent jo naye incoming emails ko khud detect kare, samjhe ke reply chahiye ya nahi, reply draft kare, aur **real mein Gmail se bhej de** — bina RAG/vectorstore ke, pure **agentic decision-making** (tool-calling) k through.
@@ -5,7 +7,7 @@
 **Stack decided (defaults — bata dena agar change karwana ho):**
 - Python 3.11+, venv (Windows/PowerShell)
 - Gmail API (official Google client) — OAuth2, polling-based (real-time push wala advanced option Phase 12 mein hai)
-- Groq API (`llama-3.3-70b-versatile`) — LLM reasoning, tumhare ShopEase project jaisa hi
+- Groq API (`openai/gpt-oss-120b`) — LLM reasoning, tumhare ShopEase project jaisa hi
 - SQLite — processed email IDs + logs (loop/duplicate reply se bachne k liye)
 - Simple polling loop (`while True + time.sleep`) — cron/Task Scheduler pe deploy hoga
 

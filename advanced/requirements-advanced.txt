@@ -1,3 +1,4 @@
-fastapi
-uvicorn
-google-cloud-pubsub
+# Webhook (real-time push) mode - on top of requirements.txt
+fastapi==0.142.2
+uvicorn==0.54.0
+requests==2.33.1

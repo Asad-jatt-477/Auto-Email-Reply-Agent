@@ -1,179 +1,193 @@
 """
 config.py
 ---------
-Ye file poore project ki SHARED, NON-SECRET settings rakhti hai.
-Golden Rule: koi bhi constant (poll interval, label names, model name, etc.)
-kisi aur file mein hardcode NAHI hoga — hamesha yahan se import hoga.
+Single source of truth for all NON-SECRET settings.
 
-Secrets (API keys) yahan NAHI aatay — wo .env mein rehte hain aur
-python-dotenv ke through load hotay hain.
+Secrets (GROQ_API_KEY, Gmail token) live in .env / platform variables.
+Values that differ between local and cloud (paths, auth mode, signature)
+can be overridden with environment variables; everything else is a
+plain constant here so it is never hardcoded inside a module.
 """
 
 import os
+
 from dotenv import load_dotenv
 
-# .env file load karo (project root se)
 load_dotenv()
 
-# ── Secrets (loaded from .env, NEVER hardcoded here) ─────────────────
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
+
+# -- Secrets ------------------------------------------------------------
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-AGENT_EMAIL = os.getenv("AGENT_EMAIL")
+AGENT_EMAIL = (os.getenv("AGENT_EMAIL") or "").strip().lower()
 
-# ── Gmail OAuth ────────────────────────────────────────────────────
-# 'modify' scope: read + send + label sab is ek scope mein aa jata hai.
-# 'send'-only scope isliye nahi liya kyunki hume unread read karna aur
-# labels add/remove karna bhi zaroori hai.
+# -- Gmail OAuth --------------------------------------------------------
+# 'modify' = read + send + labels + drafts (no permanent delete).
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
+CREDENTIALS_FILE = os.getenv("GMAIL_CREDENTIALS_FILE", "credentials.json")
+TOKEN_FILE = os.getenv("GMAIL_TOKEN_FILE", "token.json")
+# Headless / cloud: the full token.json content, base64-encoded.
+TOKEN_JSON_B64_ENV = "GMAIL_TOKEN_JSON_B64"
+# Browser login is only allowed where a human can click (local machine).
+ALLOW_INTERACTIVE_AUTH = _env_bool("ALLOW_INTERACTIVE_AUTH", True)
 
-CREDENTIALS_FILE = "credentials.json"   # Phase 1 se download hui file
-TOKEN_FILE = "token.json"               # Phase 3 mein auto-generate hogi
+# -- Polling ------------------------------------------------------------
+POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "60"))
+MAX_EMAILS_PER_CYCLE = int(os.getenv("MAX_EMAILS_PER_CYCLE", "50"))
 
-# ── Polling ────────────────────────────────────────────────────────
-POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", 60))
+# -- LLM (Groq) ---------------------------------------------------------
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+LLM_MAX_RETRIES = 3            # retries for rate-limit / network errors
+LLM_MAX_BODY_CHARS = 3000      # email body sent to the model is truncated
+LLM_TEMPERATURE = 0.2          # low = consistent decisions
 
-# ── LLM (Groq) ─────────────────────────────────────────────────────
-GROQ_MODEL = "openai/gpt-oss-120b"
+# Signature is personal -> configured per deployment, never hardcoded.
+AGENT_SIGNATURE = os.getenv("AGENT_SIGNATURE", "Best regards").replace("\\n", "\n")
 
-# ── Agent identity (Phase 6 isko reply drafts mein use karega) ──────
-# Apna naam/signature yahan badal lena.
-AGENT_SIGNATURE = "Regards,\nAsad"
+# Facts the agent may state (hours, pricing, policies). If a question
+# needs a fact that is NOT in this file, the agent must escalate instead
+# of inventing an answer.
+BUSINESS_CONTEXT_FILE = os.getenv("BUSINESS_CONTEXT_FILE", "knowledge/business_info.md")
 
-# ── Gmail Search Query (Phase 4 fetcher isko use karega) ────────────
-GMAIL_QUERY = "is:unread in:inbox"
+# -- Gmail query --------------------------------------------------------
+# Every message the agent finishes gets AI_PROCESSED_LABEL, and the query
+# excludes it. Gmail itself therefore remembers what was handled, so:
+#  * escalated mail can stay UNREAD for the human without being re-fetched
+#  * a lost/rebuilt SQLite DB (e.g. cloud redeploy) cannot cause re-replies
+# 'in:inbox' already excludes Spam and Trash.
+AI_PROCESSED_LABEL = "AI-Processed"
 
-# ── Gmail Category Labels (Phase 7 guardrails isko use karenge) ─────
-# In categories ki mail LLM tak kabhi nahi jayegi.
-#
-# NATIVE_SPAM_LABELS -> Gmail ne khud is email ko SPAM confirm kiya hua
-# hai. Ye "spam" outcome deta hai -> email ko physically Spam folder
-# mein move kiya jata hai (Phase 13).
-#
-# NON_SPAM_SKIP_LABELS -> ye sirf Gmail ke inbox TABS hain (Promotions/
-# Social/Forums) — ye spam NAHI hain, sender ne khud subscribe/follow
-# kiya hota hai, isliye inhe sirf "skip" (reply na karo) kiya jata hai,
-# Spam folder mein move NAHI kiya jata.
+
+def gmail_label_query_name(label: str) -> str:
+    """Gmail search syntax for a user label: lowercase, spaces -> '-'."""
+    return label.strip().lower().replace(" ", "-")
+
+
+# Only recent mail is considered. Without this, an inbox with a large unread
+# backlog would be worked through 50 messages per cycle until the agent
+# answers mail that is weeks or months old. 0 disables the limit.
+MAX_EMAIL_AGE_DAYS = int(os.getenv("MAX_EMAIL_AGE_DAYS", "2"))
+
+
+def build_gmail_query(max_age_days: int = None) -> str:
+    days = MAX_EMAIL_AGE_DAYS if max_age_days is None else max_age_days
+    query = f"is:unread in:inbox -label:{gmail_label_query_name(AI_PROCESSED_LABEL)}"
+    if days and days > 0:
+        query += f" newer_than:{int(days)}d"
+    return query
+
+
+GMAIL_QUERY = build_gmail_query()
+
+# -- Gmail category labels (guardrails) ---------------------------------
+# SPAM never reaches the agent with the default 'in:inbox' query. The
+# check is kept as defence-in-depth in case GMAIL_QUERY is ever widened.
 NATIVE_SPAM_LABELS = ["SPAM"]
-NON_SPAM_SKIP_LABELS = [
-    "CATEGORY_PROMOTIONS",
-    "CATEGORY_SOCIAL",
-    "CATEGORY_FORUMS",
-]
-
-# Gmail ka apna built-in Spam label ID (isay rename nahi kiya ja sakta,
-# Gmail API mein hamesha "SPAM" hi rehta hai). Email ko Spam folder mein
-# bhejne ke liye isay addLabelIds mein use karte hain (Phase 13).
+NON_SPAM_SKIP_LABELS = ["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_FORUMS"]
 SPAM_GMAIL_LABEL = "SPAM"
 
-# ── Sender-based loop-prevention (Phase 7) ───────────────────────────
-AUTO_SKIP_SENDER_PREFIXES = [
-    "no-reply@",
-    "noreply@",
-    "donotreply@",
-    "mailer-daemon@",
-    "postmaster@",
+# -- Sender rules -------------------------------------------------------
+# Matched against the LOCAL PART of the parsed sender address.
+AUTO_SKIP_LOCAL_PARTS = [
+    "no-reply", "noreply", "donotreply", "do-not-reply",
+    "mailer-daemon", "postmaster", "bounce", "bounces",
 ]
-
-# Manually blacklist karne ke liye senders (agar koi specific sender
-# hamesha skip karna ho) — yahan add karte jana.
+# Entries: exact address ("x@y.com") or whole domain ("@y.com").
 SENDER_BLACKLIST: list[str] = []
+VIP_SENDERS: list[str] = []
 
-# ── Rate limiting (Phase 7) ──────────────────────────────────────────
-MAX_REPLIES_PER_THREAD_PER_HOUR = 1
+# -- Rate limiting ------------------------------------------------------
+MAX_REPLIES_PER_THREAD_PER_HOUR = int(os.getenv("MAX_REPLIES_PER_THREAD_PER_HOUR", "1"))
 
-# ── Content sanity check (Phase 7) ───────────────────────────────────
-MIN_BODY_LENGTH = 10  # isse chhota body = skip
+# -- Content sanity -----------------------------------------------------
+MIN_BODY_LENGTH = 10
 
-# ── Custom Gmail labels agent khud manage karega ─────────────────────
+# -- Failure handling ---------------------------------------------------
+# A message whose processing keeps failing (e.g. LLM error) is handed to a
+# human after this many attempts instead of being retried forever.
+MAX_PROCESSING_ATTEMPTS = 3
+
+# -- Read/unread behaviour ----------------------------------------------
+# Agent-replied mail is marked read (it has been answered). Escalated mail
+# always stays unread (a human still has to look). Skipped mail stays
+# unread by default so the agent never silently hides the user's mail.
+MARK_SKIPPED_AS_READ = _env_bool("MARK_SKIPPED_AS_READ", False)
+
+# -- Labels the agent manages -------------------------------------------
 AI_REPLIED_LABEL = "AI-Replied"
 NEEDS_HUMAN_LABEL = "Needs-Human"
+LOW_CONFIDENCE_LABEL = "Needs-Review"
+HUMAN_APPROVED_LABEL = "Human-Approved"
+CATEGORY_LABEL_PREFIX = "Category"
+PRIORITY_LABEL_PREFIX = "Priority"
 
-# ── Paths ─────────────────────────────────────────────────────────
-DATA_DIR = "data"
-LOGS_DIR = "logs"
+# -- Paths --------------------------------------------------------------
+# On Railway point AGENT_DATA_DIR at a mounted Volume (e.g. /data).
+DATA_DIR = os.getenv("AGENT_DATA_DIR", "data")
+LOGS_DIR = os.getenv("AGENT_LOGS_DIR", "logs")
 DB_PATH = os.path.join(DATA_DIR, "agent_state.db")
 LOG_PATH = os.path.join(LOGS_DIR, "agent.log")
 
-# ── Logging (Phase 10) ────────────────────────────────────────────
-LOG_MAX_BYTES = 5 * 1024 * 1024  # 5 MB per file before rotating
-LOG_BACKUP_COUNT = 3              # kitni purani rotated files rakhni hain
+# -- Logging ------------------------------------------------------------
+LOG_TO_FILE = _env_bool("LOG_TO_FILE", True)   # cloud: stdout is enough
+LOG_MAX_BYTES = 5 * 1024 * 1024
+LOG_BACKUP_COUNT = 3
 
-# ══════════════════════════════════════════════════════════════════
-# Phase 12 — Classification, Priority, Escalation & Feedback Settings
-# ══════════════════════════════════════════════════════════════════
-# NOTE: Golden Rule follow hui hai yahan bhi — koi bhi naya constant
-# is section mein hardcode NAHI hoga kisi module ke andar, sab yahan
-# se import hoga.
-
-# ── Intent / Category options (LLM inhi mein se ek choose karega) ───
-# NOTE (Phase 13): "spam" category is khaas maqsad ke liye hai — jab
-# LLM khud (Gmail ki apni classification ke bagair) kisi email ko
-# spam/scam/phishing/fraudulent/unsolicited bulk-junk pehchane. category
-# == "spam" set hone par ye email skip hone ke sath sath Gmail ke Spam
-# folder mein bhi physically move kar di jati hai (main.py dekho).
+# -- Classification -----------------------------------------------------
 EMAIL_CATEGORIES = [
-    "spam",
-    "sales_inquiry",
-    "complaint",
-    "support_request",
-    "meeting_request",
-    "invoice_payment",
-    "general_query",
-    "other",
+    "spam", "sales_inquiry", "complaint", "support_request",
+    "meeting_request", "invoice_payment", "general_query", "other",
 ]
-
-# ── Priority levels ───────────────────────────────────────────────
 PRIORITY_LEVELS = ["high", "medium", "low"]
-
-# Deterministic (zero-token) urgency keywords — inbox ko LLM call se
-# PEHLE hi rough priority order mein sort karne ke liye use hote hain,
-# taake urgent emails pehle process hon (poll cycle ke andar).
-URGENT_KEYWORDS = [
-    "asap", "urgent", "immediately", "right away", "emergency",
-    "deadline", "today", "tonight", "critical", "escalate",
-    "fauran", "jaldi", "abhi", "zaroori",  # Roman Urdu urgency words
-]
-
-# ── Sentiment options ─────────────────────────────────────────────
 SENTIMENT_LEVELS = ["positive", "neutral", "negative", "angry"]
-
-# ── Language options (LLM inhi mein se detect karega) ─────────────
 SUPPORTED_LANGUAGES = ["english", "urdu", "roman_urdu", "other"]
-
-# ── Confidence scoring ─────────────────────────────────────────────
-# Agar LLM ka apne "reply" decision par confidence isse kam ho, to
-# reply khud mat bhejo — human review ke liye flag/escalate kar do.
 CONFIDENCE_THRESHOLD = 0.6
 
-# ── Deterministic (pre-LLM) forced-escalation keyword rules ───────
-# Ye rules LLM call se PEHLE chalte hain (guardrails ke andar) — agar
-# match ho jaye to LLM ko call hi nahi karte (token bachao) aur seedha
-# escalate kar dete hain, kyunki ye categories hamesha human-handled
-# honi chahiye chahe AI kitna bhi confident kyun na ho.
+# Urgency hints only change processing ORDER inside a cycle.
+URGENT_KEYWORDS = [
+    "asap", "urgent", "immediately", "right away", "emergency",
+    "deadline", "today", "tonight", "critical",
+    "fauran", "jaldi", "zaroori",
+]
+
+# -- Forced-escalation rules (whole-word / whole-phrase matching) -------
 LEGAL_THREAT_KEYWORDS = [
-    "lawsuit", "sue you", "legal action", "attorney", "lawyer",
-    "court", "law suit", "legally binding", "cease and desist",
-    "consumer court", "small claims",
+    "lawsuit", "sue you", "sue your company", "legal action", "legal notice",
+    "attorney", "lawyer", "take you to court", "see you in court",
+    "consumer court", "small claims", "cease and desist",
+    "court case", "court mein", "qanooni karwai",
 ]
-
+# A bare "refund" is NOT forced: "what is your refund policy?" is a normal
+# question. Only demand / dispute phrasing is forced to a human. Any other
+# refund-related mail still reaches the agent, whose prompt forbids
+# promising refunds and tells it to escalate them.
 REFUND_DISPUTE_KEYWORDS = [
-    "refund", "chargeback", "money back", "dispute the charge",
-    "unauthorized charge", "paisay wapis", "refund chahiye",
+    "want a refund", "want my refund", "need a refund", "demand a refund",
+    "full refund", "refund my", "refund me", "issue a refund",
+    "money back", "chargeback", "charge back", "dispute the charge",
+    "unauthorized charge", "unauthorised charge", "charged twice",
+    "double charged", "paisay wapis", "paise wapis", "refund chahiye",
+    "refund karo", "refund kar dein",
 ]
-
-# Angry-tone heuristic (regex-free, cheap) — inn phrases ya 3+ '!'
-# ya poora-CAPS lafz milne par tone "angry" treat hota hai pre-LLM.
 ANGRY_TONE_PHRASES = [
     "unacceptable", "furious", "extremely disappointed", "disgusted",
     "worst service", "never again", "outrageous", "ridiculous",
     "bakwaas", "bohat bura", "sharam",
 ]
+# Text that tries to steer the model ("ignore previous instructions").
+# Such mail is never auto-answered.
+PROMPT_INJECTION_PATTERNS = [
+    "ignore previous instructions", "ignore all previous instructions",
+    "ignore the above", "disregard previous instructions",
+    "disregard all instructions", "reveal your system prompt",
+    "print your system prompt", "developer mode", "new instructions:",
+]
 
-# VIP senders — inn addresses (ya domains) se aane wali angry-tone
-# email hamesha escalate hogi, AI khud reply nahi karega.
-VIP_SENDERS: list[str] = []
-
-# ── Gmail triage labels agent khud manage karega (Phase 12) ────────
-CATEGORY_LABEL_PREFIX = "Category"        # e.g. "Category-Sales-Inquiry"
-PRIORITY_LABEL_PREFIX = "Priority"        # e.g. "Priority-High"
-LOW_CONFIDENCE_LABEL = "Needs-Review"     # confidence threshold se neechay
-SPAM_LEARNED_LABEL = "Spam-Learned"       # feedback-learned spam senders
+# -- Reply output checks (post-LLM, deterministic) ----------------------
+MAX_REPLY_CHARS = 2000

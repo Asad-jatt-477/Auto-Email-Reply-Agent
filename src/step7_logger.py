@@ -1,56 +1,54 @@
 """
 step7_logger.py
------------------
-Phase 10 — Logging & Error Handling.
-
-setup_logger() ek configured Python logger return karta hai jo:
-- console pe bhi print karta hai (taake terminal mein live dekh sako)
-- logs/agent.log mein rotate hoti file mein bhi likhta hai (Golden Rule:
-  size/backup limits config.py se aate hain, hardcode nahi)
+---------------
+Logs to stdout always (what Railway / Task Scheduler capture) and to a
+rotating file under logs/ when LOG_TO_FILE is true (local default).
 """
 
 import logging
 import os
+import sys
 from logging.handlers import RotatingFileHandler
 
-from src.config import LOG_PATH, LOGS_DIR, LOG_MAX_BYTES, LOG_BACKUP_COUNT
+from src import config
+
+
+class SafeStreamHandler(logging.StreamHandler):
+    """
+    Console handler that never fails on characters the console cannot show.
+    A Windows console / pipe often uses cp1252, while email subjects contain
+    emoji, Urdu and typographic characters; those are replaced with '?'
+    instead of raising a logging error. The log FILE stays full UTF-8.
+    """
+
+    def emit(self, record):
+        try:
+            msg = self.format(record) + self.terminator
+            encoding = getattr(self.stream, "encoding", None) or "utf-8"
+            self.stream.write(msg.encode(encoding, errors="replace").decode(encoding, errors="replace"))
+            self.flush()
+        except Exception:
+            self.handleError(record)
 
 
 def setup_logger(name: str = "email_agent") -> logging.Logger:
-    """
-    Logger return karta hai. Agar pehle se configure ho chuka hai
-    (jaise multiple modules isay import karte hain), dobara handlers
-    add nahi karta — warna log lines duplicate ho jatin.
-    """
-    os.makedirs(LOGS_DIR, exist_ok=True)
-
     logger = logging.getLogger(name)
-
     if logger.handlers:
         return logger
-
     logger.setLevel(logging.INFO)
-    formatter = logging.Formatter(
-        "%(asctime)s | %(levelname)s | %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-    )
+    logger.propagate = False
+    formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
 
-    file_handler = RotatingFileHandler(
-        LOG_PATH, maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUP_COUNT
-    )
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
+    console = SafeStreamHandler(sys.stdout)
+    console.setFormatter(formatter)
+    logger.addHandler(console)
 
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
-
+    if config.LOG_TO_FILE:
+        os.makedirs(config.LOGS_DIR, exist_ok=True)
+        file_handler = RotatingFileHandler(
+            config.LOG_PATH, maxBytes=config.LOG_MAX_BYTES,
+            backupCount=config.LOG_BACKUP_COUNT, encoding="utf-8",
+        )
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
     return logger
-
-
-if __name__ == "__main__":
-    # Standalone test: python -m src.step7_logger
-    logger = setup_logger()
-    logger.info("Test log message - INFO level")
-    logger.warning("Test log message - WARNING level")
-    logger.error("Test log message - ERROR level")
-    print(f"\nCheck {LOG_PATH} to confirm these lines were written to file too.")

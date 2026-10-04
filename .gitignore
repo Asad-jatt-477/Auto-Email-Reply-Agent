@@ -1,10 +1,56 @@
-venv/
-__pycache__/
-*.pyc
-
-credentials.json
-token.json
+# =====================================================================
+# Secrets - never commit these
+# =====================================================================
 .env
+.env.*
+!.env.example
+credentials.json
+client_secret*.json
+token.json
+*.pem
+*.key
 
-data/*.db
-logs/*.log
+# =====================================================================
+# Python
+# =====================================================================
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# =====================================================================
+# Runtime state (private email data) - keep the empty folders
+# =====================================================================
+data/*
+!data/.gitkeep
+logs/*
+!logs/.gitkeep
+
+# =====================================================================
+# Personal business facts (the .example file is committed)
+# =====================================================================
+knowledge/business_info.md
+
+# =====================================================================
+# Evaluation runs (the published result lives in docs/evaluation/)
+# =====================================================================
+evaluation/results/
+
+# =====================================================================
+# Editors and operating systems
+# =====================================================================
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,86 +1,130 @@
 """
 step1_auth.py
 -------------
-Phase 3 — Gmail OAuth Authentication.
+Gmail OAuth. Returns an authenticated Gmail API service.
 
-Kaam:
-- credentials.json (Google Cloud se downloaded OAuth client) use karke
-  ek baar browser open hota hai, tum apne Gmail se login karte ho aur
-  permission dete ho.
-- Us permission ka "token" token.json file mein save ho jata hai, taake
-  agli baar dobara browser login na karna paray (jab tak token valid hai).
-- get_gmail_service() function ye poora kaam handle karta hai aur ek
-  authenticated Gmail "service" object return karta hai — yehi object
-  Phase 4 (fetcher) aur Phase 8 (sender) import karke use karenge.
+Credential sources, in order:
+1. GMAIL_TOKEN_JSON_B64 env var  -> cloud / headless (Railway). The
+   token.json content holds client_id, client_secret and refresh_token,
+   so credentials.json is NOT needed on the server.
+2. token.json on disk             -> normal local runs.
+3. Browser login (credentials.json) -> first local run only, and only
+   when ALLOW_INTERACTIVE_AUTH is true. On a server this would hang
+   waiting for a browser that does not exist, so it fails fast instead.
 
-Golden Rule follow: koi constant yahan hardcode nahi kiya — CREDENTIALS_FILE,
-TOKEN_FILE, GMAIL_SCOPES sab src/config.py se aa rahe hain.
+Create the cloud variable once, locally:  python main.py export-token
 """
 
+import base64
+import json
 import os
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
 
-from src.config import GMAIL_SCOPES, CREDENTIALS_FILE, TOKEN_FILE
+from src import config
+
+
+class GmailAuthError(RuntimeError):
+    """Raised when no usable Gmail credentials are available."""
+
+
+def _creds_from_env():
+    raw = os.getenv(config.TOKEN_JSON_B64_ENV)
+    if not raw:
+        return None
+    try:
+        info = json.loads(base64.b64decode(raw.strip()).decode("utf-8"))
+    except Exception as exc:  # malformed variable -> clear message
+        raise GmailAuthError(
+            f"{config.TOKEN_JSON_B64_ENV} is set but is not valid base64-encoded "
+            "token JSON. Regenerate it with: python main.py export-token"
+        ) from exc
+    return Credentials.from_authorized_user_info(info, config.GMAIL_SCOPES)
+
+
+def _creds_from_file():
+    if os.path.exists(config.TOKEN_FILE):
+        return Credentials.from_authorized_user_file(config.TOKEN_FILE, config.GMAIL_SCOPES)
+    return None
+
+
+def _interactive_login():
+    if not config.ALLOW_INTERACTIVE_AUTH:
+        raise GmailAuthError(
+            "No valid Gmail token and interactive login is disabled "
+            "(ALLOW_INTERACTIVE_AUTH=false). Set GMAIL_TOKEN_JSON_B64 "
+            "(see DEPLOYMENT.md)."
+        )
+    if not os.path.exists(config.CREDENTIALS_FILE):
+        raise GmailAuthError(
+            f"'{config.CREDENTIALS_FILE}' not found in the project root. Download "
+            "the OAuth client (Desktop app) JSON from Google Cloud Console."
+        )
+    from google_auth_oauthlib.flow import InstalledAppFlow
+
+    flow = InstalledAppFlow.from_client_secrets_file(config.CREDENTIALS_FILE, config.GMAIL_SCOPES)
+    return flow.run_local_server(port=0)
+
+
+def get_credentials() -> Credentials:
+    from_env = os.getenv(config.TOKEN_JSON_B64_ENV) is not None
+    creds = _creds_from_env() if from_env else _creds_from_file()
+
+    if creds and creds.valid:
+        return creds
+
+    if creds and creds.expired and creds.refresh_token:
+        try:
+            creds.refresh(Request())
+        except Exception as exc:
+            if from_env:
+                raise GmailAuthError(
+                    "Gmail token refresh failed. The refresh token was revoked or "
+                    "expired (OAuth apps in 'Testing' status expire refresh tokens "
+                    "after 7 days). Log in locally again and re-export the token."
+                ) from exc
+            creds = None
+        if creds:
+            if not from_env:
+                _save_token(creds)
+            return creds
+
+    if from_env:
+        raise GmailAuthError(
+            f"{config.TOKEN_JSON_B64_ENV} has no usable refresh token. Re-export it."
+        )
+
+    creds = _interactive_login()
+    _save_token(creds)
+    return creds
+
+
+def _save_token(creds: Credentials):
+    with open(config.TOKEN_FILE, "w", encoding="utf-8") as fh:
+        fh.write(creds.to_json())
 
 
 def get_gmail_service():
-    """
-    Authenticated Gmail API service object return karta hai.
+    from googleapiclient.discovery import build
 
-    Logic:
-    1. Agar token.json pehle se maujood hai aur valid hai -> use karo,
-       browser dobara nahi khulega.
-    2. Agar token expire ho gaya hai lekin refresh_token maujood hai ->
-       chupchap refresh kar do, user ko kuch karne ki zaroorat nahi.
-    3. Agar koi token hi nahi hai (pehli baar chal raha hai) -> browser
-       kholo, login karwao, naya token.json bana do.
-    """
-    creds = None
+    # cache_discovery=False avoids a noisy file-cache warning on servers.
+    return build("gmail", "v1", credentials=get_credentials(), cache_discovery=False)
 
-    # Step 1: purana token file check karo
-    if os.path.exists(TOKEN_FILE):
-        creds = Credentials.from_authorized_user_file(TOKEN_FILE, GMAIL_SCOPES)
 
-    # Step 2/3: agar token nahi hai ya invalid hai
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            if not os.path.exists(CREDENTIALS_FILE):
-                raise FileNotFoundError(
-                    f"'{CREDENTIALS_FILE}' nahi mili project root mein.\n"
-                    "Google Cloud Console -> Google Auth Platform -> Clients "
-                    "se apne OAuth client (Desktop app) ka JSON download "
-                    f"karo aur usay exactly '{CREDENTIALS_FILE}' naam se "
-                    "project ke root folder mein rakho."
-                )
-            flow = InstalledAppFlow.from_client_secrets_file(
-                CREDENTIALS_FILE, GMAIL_SCOPES
-            )
-            # Ye line browser open karti hai login ke liye
-            creds = flow.run_local_server(port=0)
-
-        # naya/refreshed token save kar do taake agli baar reuse ho
-        with open(TOKEN_FILE, "w") as token_file:
-            token_file.write(creds.to_json())
-
-    service = build("gmail", "v1", credentials=creds)
-    return service
+def export_token_b64() -> str:
+    """Base64 of the local token.json, for the GMAIL_TOKEN_JSON_B64 variable."""
+    if not os.path.exists(config.TOKEN_FILE):
+        raise GmailAuthError(f"'{config.TOKEN_FILE}' not found. Run the agent locally once to log in.")
+    with open(config.TOKEN_FILE, "rb") as fh:
+        data = fh.read()
+    info = json.loads(data)
+    if not info.get("refresh_token"):
+        raise GmailAuthError("token.json has no refresh_token; delete it and log in again.")
+    return base64.b64encode(data).decode("ascii")
 
 
 if __name__ == "__main__":
-    # Ye block sirf tab chalta hai jab ye file DIRECTLY run ki jaye
-    # (python -m src.step1_auth), taake hum isko standalone test kar sakein.
-    try:
-        service = get_gmail_service()
-        profile = service.users().getProfile(userId="me").execute()
-        print("Authentication successful")
-        print(f"Logged in as: {profile.get('emailAddress')}")
-    except FileNotFoundError as e:
-        print(f"Setup error: {e}")
-    except Exception as e:
-        print(f"Authentication failed: {e}")
+    service = get_gmail_service()
+    profile = service.users().getProfile(userId="me").execute()
+    print(f"Authentication successful. Logged in as: {profile.get('emailAddress')}")

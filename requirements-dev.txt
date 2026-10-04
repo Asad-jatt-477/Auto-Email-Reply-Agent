@@ -1,0 +1,6 @@
+# Everything needed to run the full test suite
+-r requirements.txt
+-r advanced/requirements-advanced.txt
+-r dashboard/requirements.txt
+pytest==9.1.1
+httpx==0.28.1

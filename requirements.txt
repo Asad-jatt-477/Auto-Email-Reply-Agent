@@ -1,5 +1,8 @@
-google-api-python-client
-google-auth-httplib2
-google-auth-oauthlib
-groq
-python-dotenv
+# Core agent (polling mode). Versions pinned to the set the test suite was run against.
+google-api-python-client==2.201.0
+google-auth==2.59.1
+google-auth-oauthlib==1.5.0
+google-auth-httplib2==0.4.4
+groq==1.7.0
+python-dotenv==1.2.2
+requests==2.33.1
