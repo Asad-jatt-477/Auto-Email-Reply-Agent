@@ -62,37 +62,44 @@ button.ghost{background:transparent;color:#fff;border:1px solid #ffffff66;paddin
 @media(max-width:760px){.tg{grid-template-columns:1fr}.hero{padding:26px 20px}.hero h1{font-size:27px}header nav{margin-left:0}}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 .note li{margin:4px 0;color:var(--ink)}
+.err{border-left:4px solid var(--escalate);background:#dc26260f;color:var(--ink);font-size:14px}.err b{display:block;margin-bottom:2px}.err small{color:var(--mute)}
+.stamp{color:var(--mute);font-size:12.5px;margin:10px 2px 0}
+.tag{display:inline-block;background:#2563eb14;color:var(--acc);border:1px solid #2563eb44;padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;margin:0 0 10px}
+.skel{opacity:.55}
 </style>
 </head>
 <body>
 <header><b>&#9993; Email Reply AI Agent</b>
 <nav id="nav"></nav></header>
-<div class="banner"><b>Live demo, read-only.</b> Everything here uses sample data. No real mailbox, API key or LLM is connected, and nothing can be sent.</div>
+<div class="banner"><b>Public demo, read-only.</b> Metrics come from a recorded evaluation run and activity counts are anonymised aggregates. The sample emails are pre-recorded examples. No mailbox, API key or LLM is connected, and nothing can be sent.</div>
 <main>
 <section class="tab" id="overview">
 <div class="hero"><span class="pill">Portfolio project</span><h1>Email Reply AI Agent</h1><p>A Gmail agent that decides whether to reply, skip or escalate each incoming email. Rule-based guardrails run first, one LLM call decides, and uncertain mail is handed to a human.</p><button class="cta" onclick="show('try')">Try the demo</button><button class="ghost" onclick="show('eval')">See evaluation</button></div>
-<div class="grid g4" id="kpis"></div>
+<div class="grid g4" id="kpis"><div class="card kpi skel"><b>&hellip;</b><span>Loading metrics</span></div></div>
+<p class="stamp" id="stamp0"></p>
+<div class="card" style="margin-top:14px" id="actCard"><h2>Agent activity <small style="color:var(--mute);font-weight:400">aggregated and anonymised</small></h2><div id="act"><small style="color:var(--mute)">Loading&hellip;</small></div></div>
 <div class="card" style="margin-top:14px"><h2>How every email is processed</h2><div class="flow" id="flow0"></div></div>
 <div class="grid g2" style="margin-top:14px">
-<div class="card"><h2>Five possible outcomes</h2><div id="outs"></div></div>
+<div class="card"><h2>Five possible outcomes</h2><p style="color:var(--mute);font-size:12.5px;margin:-6px 0 10px" id="outsNote"></p><div id="outs"></div></div>
 <div class="card"><h2>Safety design</h2><ul style="margin:0;padding-left:18px;color:var(--ink)">
 <li>Rule-based guardrails run <b>before</b> the LLM (0 tokens)</li><li>One grounded LLM call, only facts from a business file</li>
 <li>Draft is re-checked: links, addresses, length, confidence</li><li>Unsure mail goes to a human, never guessed</li>
 <li>Built to avoid duplicate replies and reply loops</li><li>Measured on a small labelled test set</li></ul></div></div>
 </section>
 <section class="tab" id="try">
-<h1>Try the agent</h1><p class="sub">Pick a sample email and watch the agent process it step by step. Results are pre-recorded from real runs and never call an LLM.</p>
+<h1>Try the agent</h1><p class="sub">Pick an example email and watch the agent process it step by step. These are pre-recorded examples: nothing here calls an LLM or touches a mailbox.</p>
 <div class="tg">
-<div class="list" id="mails"></div>
+<div><span class="tag">Pre-recorded examples</span><div class="list" id="mails"></div></div>
 <div><div class="card" id="view"></div><div class="card flow" id="flow1" style="margin-top:14px"></div><div class="card" id="result" style="margin-top:14px;display:none"></div></div></div>
 </section>
-<section class="tab" id="log"><h1>Decision log</h1><p class="sub">Every decision with its source, category and confidence. Click a row to replay it.</p>
+<section class="tab" id="log"><h1>Decision log</h1><p class="sub"><span class="tag" style="margin:0 8px 0 0">Pre-recorded examples</span>Decisions for the example emails, with source, category and confidence. Click a row to replay it.</p>
 <div class="filters" id="filters"></div><div class="card" style="overflow-x:auto"><table><thead><tr><th>Action</th><th>Source</th><th>Subject</th><th>Category</th><th>Conf.</th></tr></thead><tbody id="rows"></tbody></table></div></section>
-<section class="tab" id="eval"><h1>Evaluation</h1><p class="sub">Full pipeline tested on 55 labelled emails in English, Urdu and Roman Urdu (model: openai/gpt-oss-120b).</p>
+<section class="tab" id="eval"><h1>Evaluation</h1><p class="sub" id="evsub">Loading evaluation&hellip;</p>
 <div class="grid g4" id="ek"></div>
+<p class="stamp" id="stampE"></p>
 <div class="grid g2" style="margin-top:14px"><div class="card"><h2>Confusion matrix</h2><div class="cm" id="cm"></div><p style="color:var(--mute);font-size:12px">rows = expected, columns = predicted</p></div>
 <div class="card"><h2>Per-class results</h2><table id="pc"></table>
-<p style="color:var(--mute);font-size:13px"><b>Honest reading:</b> 1 of 20 emails that needed a human was answered automatically (5% unsafe auto-reply rate). 1 email hit a free-tier rate limit, so 54 were scored. Small dataset: a strong start, not a final verdict.</p></div></div></section>
+<p style="color:var(--mute);font-size:13px" id="honest"></p></div></div></section>
 <section class="tab" id="ctl"><h1>Controls</h1><p class="sub">The owner console. In this public demo the controls are visible but locked.</p>
 <div class="card"><div class="lock">&#128274; Owner mode needs a private backend connected to the agent. Public visitors cannot start, stop or change anything.</div>
 <div class="ctl"><div>Agent status<small>Polls the inbox on a fixed interval</small></div><span class="chip reply">Running (sample)</span></div>
@@ -102,7 +109,7 @@ button.ghost{background:transparent;color:#fff;border:1px solid #ffffff66;paddin
 <div class="ctl"><div>Dry-run mode<small>Decide only: no send, no labels</small></div><div class="tog"></div></div>
 <div class="ctl"><div>Human review queue<small>Edit the draft, send, or mark handled</small></div><b>Owner only</b></div></div></section>
 </main>
-<footer>Email Reply AI Agent | Demo data only</footer>
+<footer>Email Reply AI Agent | <span id="stampF">Loading data&hellip;</span></footer>
 <script>
 const API_BASE=""; // owner mode hook: set to a private backend URL later (not used in the public demo)
 const E=[
@@ -124,10 +131,7 @@ $("#nav").innerHTML=T.map(t=>`<button data-t="${t[0]}">${t[1]}</button>`).join("
 function show(t){document.querySelectorAll(".tab").forEach(e=>e.classList.toggle("on",e.id==t));document.querySelectorAll("#nav button").forEach(b=>b.classList.toggle("on",b.dataset.t==t));scrollTo(0,0);location.hash=t}
 $("#nav").onclick=e=>e.target.dataset.t&&show(e.target.dataset.t);
 // overview
-const cnt=a=>E.filter(e=>e.a==a).length,gr=E.filter(e=>e.src=="guardrails").length;
-$("#kpis").innerHTML=[["98.1%","Decision accuracy, 55-email test set"],["0%","Legit mail sent to spam, same test set"],["16 / 55","Decided with no LLM call"],["~6 s","Mean LLM latency"]].map(k=>`<div class="card kpi"><b>${k[0]}</b><span>${k[1]}</span></div>`).join("");
 flow("#flow0");
-$("#outs").innerHTML=["reply","review","escalate","skip","spam"].map(a=>`<div class="row"><label>${a}</label><div class="bar"><i class="${a}" style="width:${cnt(a)/E.length*100}%"></i></div><span>${cnt(a)}</span></div><small style="color:var(--mute)">${FX[a]}</small>`).join("");
 // try
 $("#mails").innerHTML=E.map(e=>`<div class="mail" data-id="${e.id}"><b>${e.sub}</b><small>${e.from.replace(/<.*>/,"")}</small></div>`).join("");
 $("#mails").onclick=e=>{const m=e.target.closest(".mail");m&&pick(+m.dataset.id)};
@@ -151,11 +155,60 @@ function rows(){$("#filters").innerHTML=["all","reply","review","escalate","skip
 $("#rows").innerHTML=E.filter(e=>flt=="all"||e.a==flt).map(e=>`<tr class="click" data-id="${e.id}"><td>${chip(e.a)}</td><td>${e.src}</td><td>${e.sub}</td><td>${e.cat}</td><td>${e.conf??"-"}</td></tr>`).join("")}
 $("#filters").onclick=e=>{if(e.target.dataset.f){flt=e.target.dataset.f;rows()}};
 $("#rows").onclick=e=>{const r=e.target.closest("tr");if(r){show("try");pick(+r.dataset.id)}};rows();
-// eval
-$("#ek").innerHTML=[["98.1%","Accuracy (54 scored)"],["0.986","Macro F1"],["100%","Language detection"],["5%","Unsafe auto-reply rate"]].map(k=>`<div class="card kpi"><b>${k[0]}</b><span>${k[1]}</span></div>`).join("");
-const L=["reply","human","skip","spam"],M=[[16,0,0,0],[1,19,0,0],[0,0,13,0],[0,0,0,5]];
-$("#cm").innerHTML='<div class="h"></div>'+L.map(l=>`<div class="h">${l}</div>`).join("")+M.map((r,i)=>`<div class="h" style="text-align:right;padding-right:6px">${L[i]}</div>`+r.map((v,j)=>`<div class="${v?(i==j?"ok":"bad"):"z"}">${v}</div>`).join("")).join("");
-$("#pc").innerHTML="<tr><th>Class</th><th>Precision</th><th>Recall</th><th>F1</th><th>n</th></tr>"+[["reply",.941,1,.970,16],["human",1,.95,.974,20],["skip",1,1,1,13],["spam",1,1,1,5]].map(r=>`<tr><td>${r[0]}</td><td>${r[1].toFixed(3)}</td><td>${r[2].toFixed(3)}</td><td>${r[3].toFixed(3)}</td><td>${r[4]}</td></tr>`).join("");
+// eval: rendered from data/metrics.json (see loadData below)
+
+// ---- data layer: data/metrics.json (required) + data/stats.json (optional) ----
+const pct=(v,d=1)=>{const x=(v*100).toFixed(d);return(x.endsWith(".0")?x.slice(0,-2):x)+"%"};
+const esc=t=>String(t).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fdate=iso=>{const d=new Date(iso);return isNaN(d)?"unknown":d.toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"})};
+const kpis=a=>a.map(k=>`<div class="card kpi"><b>${esc(k[0])}</b><span>${esc(k[1])}</span></div>`).join("");
+async function getJSON(path){const r=await fetch(path,{cache:"no-cache"});if(!r.ok)throw new Error(`${path}: HTTP ${r.status}`);return r.json()}
+function checkMetrics(m){
+  const need=["dataset","summary","pipeline","labels","confusion_matrix","per_class","model","evaluated_at"];
+  const miss=need.filter(k=>!(k in m));if(miss.length)throw new Error("metrics.json is missing: "+miss.join(", "));
+  const n=m.labels.length;if(m.confusion_matrix.length!==n||m.confusion_matrix.some(r=>r.length!==n))throw new Error("metrics.json: confusion matrix shape does not match labels");
+}
+function showError(err){
+  const hint=location.protocol==="file:"?"Browsers block fetch() on file:// pages. Serve the folder instead: <code>python -m http.server -d web 8000</code> and open http://localhost:8000.":"Run <code>python scripts/export_demo_data.py</code> and redeploy, or check that <code>data/metrics.json</code> is published.";
+  const box=`<div class="card err"><b>Evaluation data could not be loaded.</b>${esc(err.message)}<br><small>${hint}</small></div>`;
+  ["#kpis","#ek","#outs"].forEach(id=>{$(id).innerHTML=box});
+  $("#cm").innerHTML="";$("#pc").innerHTML="";$("#honest").textContent="";
+  $("#evsub").textContent="Evaluation data unavailable.";$("#stampF").textContent="Data unavailable";
+  $("#stamp0").textContent="";$("#stampE").textContent="";
+}
+function renderMetrics(m,st){
+  const d=m.dataset,s=m.summary,p=m.pipeline,L=m.labels;
+  $("#kpis").innerHTML=kpis([[pct(s.accuracy),`Decision accuracy, ${d.n_emails}-email test set`],[pct(s.legit_to_spam_rate,0),"Legit mail sent to spam, same test set"],[`${p.decided_by_guardrails} / ${d.n_emails}`,"Decided with no LLM call"],[`~${Math.round(p.mean_llm_latency_s)} s`,"Mean LLM latency"]]);
+  $("#ek").innerHTML=kpis([[pct(s.accuracy),`Accuracy (${d.n_scored} scored)`],[s.macro_f1.toFixed(3),"Macro F1"],[pct(s.language_accuracy,0),"Language detection"],[pct(s.unsafe_auto_reply_rate,0),"Unsafe auto-reply rate"]]);
+  $("#evsub").textContent=`Full pipeline tested on ${d.n_emails} labelled emails in English, Urdu and Roman Urdu (model: ${m.model}).`;
+  const stamp=`Evaluation run: ${fdate(m.evaluated_at)} (${m.run_id}) | Data exported: ${fdate(m.generated_at)}`;
+  $("#stamp0").textContent=$("#stampE").textContent=stamp;$("#stampF").textContent=`Last updated ${fdate(m.generated_at)} | evaluation run ${fdate(m.evaluated_at)}`;
+  // confusion matrix (rows = expected, columns = predicted)
+  $("#cm").style.gridTemplateColumns=`auto repeat(${L.length},1fr)`;
+  $("#cm").innerHTML='<div class="h"></div>'+L.map(l=>`<div class="h">${esc(l)}</div>`).join("")+m.confusion_matrix.map((r,i)=>`<div class="h" style="text-align:right;padding-right:6px">${esc(L[i])}</div>`+r.map((v,j)=>`<div class="${v?(i==j?"ok":"bad"):"z"}">${v}</div>`).join("")).join("");
+  $("#pc").innerHTML="<tr><th>Class</th><th>Precision</th><th>Recall</th><th>F1</th><th>n</th></tr>"+m.per_class.map(r=>`<tr><td>${esc(r.label)}</td><td>${r.precision.toFixed(3)}</td><td>${r.recall.toFixed(3)}</td><td>${r.f1.toFixed(3)}</td><td>${r.support}</td></tr>`).join("");
+  // honest reading, computed from the matrix
+  const hi=L.indexOf("human"),ri=L.indexOf("reply");let txt="";
+  if(hi>=0&&ri>=0){const tot=m.confusion_matrix[hi].reduce((a,b)=>a+b,0),bad=m.confusion_matrix[hi][ri];txt=`${bad} of ${tot} emails that needed a human ${bad==1?"was":"were"} answered automatically (${pct(s.unsafe_auto_reply_rate,0)} unsafe auto-reply rate). `}
+  if(d.n_errors){const k=Object.keys(d.error_kinds||{});txt+=`${d.n_errors} email${d.n_errors>1?"s":""} could not be scored${k.includes("RateLimitError")?" (free-tier rate limit)":""}, so ${d.n_scored} were scored. `}
+  $("#honest").innerHTML=`<b>Honest reading:</b> ${esc(txt)}Small dataset: a strong start, not a final verdict.`;
+  // outcome bars from the evaluation run's action counts
+  const ac=m.action_counts||{};$("#outsNote").textContent=`Counts from the ${d.n_emails}-email evaluation run. Review cases are grouped with escalate in the evaluation.`;
+  $("#outs").innerHTML=["reply","review","escalate","skip","spam"].map(a=>{const n=ac[a];return`<div class="row"><label>${a}</label><div class="bar"><i class="${a}" style="width:${n==null?0:n/d.n_emails*100}%"></i></div><span>${n==null?"-":n}</span></div><small style="color:var(--mute)">${FX[a]}</small>`}).join("");
+  renderActivity(st);
+}
+function renderActivity(st){
+  const el=$("#act");
+  if(!st){el.innerHTML='<small style="color:var(--mute)">Activity statistics are not available right now.</small>';return}
+  const a=st.by_action||{},g=(st.by_source||{}).guardrails||0,w=st.window||{};
+  el.innerHTML=`<div class="grid g4">${kpis([[st.total_processed,"Emails processed"],[a.reply||0,"Auto-replied"],[(a.escalate||0)+(a.review||0),"Handed to a human"],[g,"Decided by rules (0 tokens)"]])}</div><p class="stamp">${w.first_date?`Covers ${fdate(w.first_date)} to ${fdate(w.last_date)}. `:""}Counts only: no senders, subjects or message text are published.</p>`;
+}
+(async()=>{
+  const [mr,sr]=await Promise.allSettled([getJSON("data/metrics.json"),getJSON("data/stats.json")]);
+  const st=sr.status==="fulfilled"?sr.value:null;
+  try{if(mr.status!=="fulfilled")throw mr.reason;checkMetrics(mr.value);renderMetrics(mr.value,st)}
+  catch(e){console.error(e);showError(e);renderActivity(st)}
+})();
 show(location.hash.slice(1)&&document.getElementById(location.hash.slice(1))?location.hash.slice(1):"overview");
 </script>
 </body>

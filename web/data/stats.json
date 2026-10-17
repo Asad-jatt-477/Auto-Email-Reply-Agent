@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-10-17T07:22:01+00:00",
+  "window": {
+    "first_date": "2026-10-04",
+    "last_date": "2026-10-17"
+  },
+  "total_processed": 182,
+  "pending_review": 1,
+  "by_action": {
+    "skip": 171,
+    "reply": 8,
+    "spam": 2,
+    "escalate": 1
+  },
+  "by_source": {
+    "guardrails": 167,
+    "agent": 15
+  },
+  "by_language": {
+    "unclassified": 167,
+    "english": 15
+  },
+  "by_category": {
+    "unclassified": 167,
+    "general_query": 6,
+    "other": 4,
+    "sales_inquiry": 3,
+    "spam": 2
+  },
+  "by_day": {
+    "2026-10-04": 66,
+    "2026-10-16": 100,
+    "2026-10-17": 16
+  }
+}
