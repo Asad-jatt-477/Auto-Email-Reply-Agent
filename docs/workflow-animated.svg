@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1090 500" width="1090" height="500" role="img" aria-label="Animated workflow of the Email Reply AI Agent">
+<title>Email Reply AI Agent workflow</title>
+<style>
+text{font-family:Segoe UI,Helvetica,Arial,sans-serif;text-anchor:middle}
+.h{fill:#e2e8f0;font-size:18px;font-weight:700}.hs{fill:#94a3b8;font-size:12px}
+.t{fill:#fff;font-size:15px;font-weight:700}.s{fill:#94a3b8;font-size:11px}
+.p{fill:#fff;font-size:14px;font-weight:700}.ps{fill:#ffffffcc;font-size:10.5px}
+.flow{stroke:#475569;stroke-width:2.5;stroke-dasharray:7 6;animation:dash 1s linear infinite;fill:none}
+@keyframes dash{to{stroke-dashoffset:-13}}
+.lit{animation:lit 9.5s ease-in-out infinite}
+@keyframes lit{0%{stroke-width:2}4%{stroke-width:6}11%{stroke-width:2}100%{stroke-width:2}}
+.tag{fill:#f59e0b;font-size:12px;font-style:italic}
+@media(prefers-reduced-motion:reduce){.flow,.lit{animation:none}}
+</style>
+<rect width="1090" height="500" rx="16" fill="#0f172a"/>
+<text x="545" y="40" class="h">Per-email workflow</text><text x="545" y="60" class="hs">Runs on every polling cycle</text>
+<line class="flow" x1="210" y1="130" x2="250" y2="130"/>
+<line class="flow" x1="420" y1="130" x2="460" y2="130"/>
+<line class="flow" x1="630" y1="130" x2="670" y2="130"/>
+<line class="flow" x1="840" y1="130" x2="880" y2="130"/>
+<line class="flow" x1="965" y1="170" x2="965" y2="270"/>
+<line class="flow" x1="880" y1="310" x2="630" y2="310"/>
+<line class="flow" x1="460" y1="310" x2="210" y2="310"/>
+<path class="flow" d="M545,350 V382 H145 V410" style="stroke:#22c55e"/>
+<path class="flow" d="M545,350 V382 H345 V410" style="stroke:#f59e0b"/>
+<path class="flow" d="M545,350 V382 H545 V410" style="stroke:#ef4444"/>
+<path class="flow" d="M545,350 V382 H945 V410" style="stroke:#8b5cf6"/>
+<path class="flow" d="M755,170 V410" style="stroke:#f59e0b"/>
+<g><rect class="lit" style="animation-delay:0s" x="40" y="90" width="170" height="80" rx="12" fill="#1e293b" stroke="#64748b" stroke-width="2"/><text x="125" y="124" class="t">1. Gmail inbox</text><text x="125" y="146" class="s">Unread mail, last 2 days</text></g>
+<g><rect class="lit" style="animation-delay:1s" x="250" y="90" width="170" height="80" rx="12" fill="#1e293b" stroke="#3b82f6" stroke-width="2"/><text x="335" y="124" class="t">2. Fetcher</text><text x="335" y="146" class="s">Parse headers + body</text></g>
+<g><rect class="lit" style="animation-delay:2s" x="460" y="90" width="170" height="80" rx="12" fill="#1e293b" stroke="#3b82f6" stroke-width="2"/><text x="545" y="124" class="t">3. State guard</text><text x="545" y="146" class="s">Never process twice</text></g>
+<g><rect class="lit" style="animation-delay:3s" x="670" y="90" width="170" height="80" rx="12" fill="#1e293b" stroke="#f59e0b" stroke-width="2"/><text x="755" y="124" class="t">4. Guardrails</text><text x="755" y="146" class="s">Rules, 0 LLM tokens</text></g>
+<g><rect class="lit" style="animation-delay:4s" x="880" y="90" width="170" height="80" rx="12" fill="#1e293b" stroke="#8b5cf6" stroke-width="2"/><text x="965" y="124" class="t">5. LLM agent</text><text x="965" y="146" class="s">One tool call</text></g>
+<g><rect class="lit" style="animation-delay:4.9s" x="880" y="270" width="170" height="80" rx="12" fill="#1e293b" stroke="#8b5cf6" stroke-width="2"/><text x="965" y="304" class="t">6. Draft checks</text><text x="965" y="326" class="s">Links, length, confidence</text></g>
+<g><rect class="lit" style="animation-delay:6.9s" x="460" y="270" width="170" height="80" rx="12" fill="#1e293b" stroke="#22c55e" stroke-width="2"/><text x="545" y="304" class="t">7. Action</text><text x="545" y="326" class="s">Send / draft / label / spam</text></g>
+<g><rect class="lit" style="animation-delay:8.8s" x="40" y="270" width="170" height="80" rx="12" fill="#1e293b" stroke="#64748b" stroke-width="2"/><text x="125" y="304" class="t">8. Logger</text><text x="125" y="326" class="s">Audit log + database</text></g>
+<rect x="55" y="410" width="180" height="46" rx="23" fill="#22c55e"/><text x="145" y="430" class="p">REPLY</text><text x="145" y="447" class="ps">sent in-thread</text>
+<rect x="255" y="410" width="180" height="46" rx="23" fill="#f59e0b"/><text x="345" y="430" class="p">REVIEW</text><text x="345" y="447" class="ps">Gmail draft</text>
+<rect x="455" y="410" width="180" height="46" rx="23" fill="#ef4444"/><text x="545" y="430" class="p">ESCALATE</text><text x="545" y="447" class="ps">Needs-Human</text>
+<rect x="655" y="410" width="180" height="46" rx="23" fill="#64748b"/><text x="745" y="430" class="p">SKIP</text><text x="745" y="447" class="ps">no action</text>
+<rect x="855" y="410" width="180" height="46" rx="23" fill="#8b5cf6"/><text x="945" y="430" class="p">SPAM</text><text x="945" y="447" class="ps">moved to Spam</text>
+
+<text x="745" y="222" class="tag" style="text-anchor:end">Guardrail rule matched:</text><text x="745" y="238" class="tag" style="text-anchor:end">decided with no LLM call</text>
+<circle r="8" fill="#60a5fa" opacity=".95"><animateMotion dur="9.5s" repeatCount="indefinite" path="M125,130 H965 V310 H125"/></circle>
+<circle r="14" fill="#60a5fa" opacity=".25"><animateMotion dur="9.5s" repeatCount="indefinite" path="M125,130 H965 V310 H125"/></circle>
+</svg>

@@ -54,3 +54,4 @@ evaluation/results/
 .DS_Store
 Thumbs.db
 desktop.ini
+virtual_env/
