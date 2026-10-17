@@ -4,7 +4,7 @@
 
 **A Gmail-integrated AI agent that reads incoming email, decides whether it needs a response, drafts that response in the sender's own language and tone, and sends it when it is confident enough.**
 
-<a href="https://YOUR-PROJECT.vercel.app"><img alt="Live Demo" src="https://img.shields.io/badge/%E2%96%B6%20Live%20Demo-Open%20the%20demo-2563eb?style=for-the-badge"></a>
+<a href="https://auto-email-reply-agent-web.vercel.app"><img alt="Live Demo" src="https://img.shields.io/badge/%E2%96%B6%20Live%20Demo-Open%20the%20demo-2563eb?style=for-the-badge"></a>
 
 <sub>The live demo is read-only and uses sample data. No mailbox, API key or LLM is connected to it.</sub>
 
